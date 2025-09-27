@@ -1,75 +1,54 @@
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#define SOUND_SPEED 0.0343
 
-BLEScan* pBLEScan;
+const int trigPin1 = 12;
+const int echoPin1 = 14;
 
-// Struktur untuk menyimpan device + RSSI
-struct DeviceInfo {
-  String address;
-  int rssi;
-  String name;
-};
+const int trigPin2 = 27;
+const int echoPin2 = 26;
 
-// Array untuk menyimpan hasil scan
-DeviceInfo devices[50];  // maksimal 50 device
-int deviceCount = 0;
+const int trigPin3 = 25;
+const int echoPin3 = 33;
 
-class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
-  void onResult(BLEAdvertisedDevice advertisedDevice) {
-    if (deviceCount >= 50) return; // jangan sampai overflow array
+float distance1 = 0;
+float distance2 = 0;
+float distance3 = 0;
 
-    DeviceInfo info;
-    info.address = advertisedDevice.getAddress().toString().c_str();
-    info.rssi = advertisedDevice.getRSSI();
-    info.name = advertisedDevice.haveName() ? advertisedDevice.getName().c_str() : "<Unknown>";
+float scan(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
 
-    devices[deviceCount++] = info;
-  }
-};
+  long duration = pulseIn(echoPin, HIGH, 25000);
+  
+  float distance = duration * 0.0343 / 2.0;
+  return distance;
+}
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Scanning for BLE devices...");
-
-  BLEDevice::init("");
-  pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setActiveScan(true);
-  pBLEScan->setInterval(100);
-  pBLEScan->setWindow(99);
+  
+  pinMode(trigPin1, OUTPUT);
+  pinMode(echoPin1, INPUT);
+  pinMode(trigPin2, OUTPUT);
+  pinMode(echoPin2, INPUT);
+  pinMode(trigPin3, OUTPUT);
+  pinMode(echoPin3, INPUT);
 }
 
 void loop() {
-  deviceCount = 0;  // reset hasil scan
-  BLEScanResults* foundDevices = pBLEScan->start(5, false);  // scan 5 detik
+  distance1 = scan(trigPin1, echoPin1);
+  distance2 = scan(trigPin2, echoPin2);
+  distance3 = scan(trigPin3, echoPin3);
 
-  // --- Sort berdasarkan RSSI (descending)
-  for (int i = 0; i < deviceCount - 1; i++) {
-    for (int j = i + 1; j < deviceCount; j++) {
-      if (devices[j].rssi > devices[i].rssi) {
-        DeviceInfo temp = devices[i];
-        devices[i] = devices[j];
-        devices[j] = temp;
-      }
-    }
-  }
+  Serial.print("Dist 1: ");
+  Serial.print(distance1);
+  Serial.print(" cm  |  Dist 2: ");
+  Serial.print(distance2);
+  Serial.print(" cm  |  Dist 3: ");
+  Serial.print(distance3);
+  Serial.println(" cm");
 
-  // --- Print hasil
-  Serial.printf("Devices found: %d\n", deviceCount);
-  for (int i = 0; i < deviceCount; i++) {
-    Serial.print(i + 1);
-    Serial.print(". Address: ");
-    Serial.print(devices[i].address);
-    Serial.print(" | RSSI: ");
-    Serial.print(devices[i].rssi);
-    Serial.print(" dBm | Name: ");
-    Serial.println(devices[i].name);
-  }
-
-  Serial.println("Scan done!\n");
-
-  pBLEScan->clearResults();
-  delay(2000);
+  delay(500);
 }

@@ -14,7 +14,9 @@ const char* mqttHost = "148.230.101.206";
 const uint16_t mqttPort = 1883;
 const char* mqttUser = "dk";
 const char* mqttPass = "dkdkdk";
-const char* mqttTopic = "things/rssi/curr";
+
+const String rssiTopic = "things/rssi";
+const String ultrasonicTopic = "things/ultrasonic";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -99,12 +101,11 @@ void setup() {
     reconnect();
   }
 
-  // Serial.println("Publishing to MQTT...");
-  // if (client.publish(mqttTopic, payload.c_str())) {
-  //     Serial.println("Publish success");
-  // } else {
-  //     Serial.println("Publish failed");
-  // }
+  if (client.publish((rssiTopic + "/start").c_str(), payload.c_str())) {
+    Serial.println("Publish success");
+  } else {
+    Serial.println("Publish failed");
+  }
 }
 
 void loop() {
@@ -114,5 +115,10 @@ void loop() {
   client.loop();
   String payload = scan();
   Serial.println(payload);
+  if (client.publish((rssiTopic + "/start").c_str(), payload.c_str())) {
+    Serial.println("Publish success");
+  } else {
+    Serial.println("Publish failed");
+  }
   delay(1000);
 }
