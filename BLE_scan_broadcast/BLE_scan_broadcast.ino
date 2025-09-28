@@ -1,42 +1,35 @@
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <string>
-
-#define SOUND_SPEED 0.0343
 
 using namespace std;
 
 const int trigPin1 = 12, echoPin1 = 14, trigPin2 = 27, echoPin2 = 26, trigPin3 = 25, echoPin3 = 33, mqttPort = 1883;
 const char *ssid = "Xiaomi 12T", *password = "hehehehe", *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk";
-const String topic = "things/rssi";
+const string topic = "things/rssi";
 
-BLEScan* pBLEScan;
+string rssi1_data = "", rssi2_data = "", rssi3_data = "";
 
-String rssi1_data = "";
-String rssi2_data = "";
-String rssi3_data = "";
+int scanTimeMs = 200;
+NimBLEScan* pBLEScan;
 
-class ESPAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
-  void onResult(BLEAdvertisedDevice advertisedDevice) {
-    String address = advertisedDevice.getAddress().toString();
-    float rssi = advertisedDevice.getRSSI();
-
+class ScanCallback : public NimBLEScanCallbacks {
+  void onResult(const NimBLEAdvertisedDevice* advertisedDevice) {
+    string address = advertisedDevice->getAddress().toString();
+    int rssi = advertisedDevice->getRSSI();
     if (address == "68:25:dd:44:e6:c2") {
       if (rssi1_data.length() > 0) rssi1_data += ",";
-      rssi1_data += String(rssi);
+      rssi1_data += to_string(rssi);
     } else if (address == "b0:a7:32:2a:69:56") {
       if (rssi2_data.length() > 0) rssi2_data += ",";
-      rssi2_data += String(rssi);
+      rssi2_data += to_string(rssi);
     } else if (address == "b0:a7:32:14:26:6a") {
       if (rssi3_data.length() > 0) rssi3_data += ",";
-      rssi3_data += String(rssi);
+      rssi3_data += to_string(rssi);
     }
   }
-};
+} scanCallbacks;
 
 void scanRSSI() {
   rssi1_data = "";
@@ -44,10 +37,9 @@ void scanRSSI() {
   rssi3_data = "";
 
   for (int i = 0; i < 7; i++) {
-    pBLEScan->start(1, false);
-    pBLEScan->clearResults();
-    delay(50);
+    pBLEScan->getResults(scanTimeMs, false);
   }
+  pBLEScan->clearResults();
 }
 
 float scanDistance(int trigPin, int echoPin) {
@@ -63,10 +55,10 @@ float scanDistance(int trigPin, int echoPin) {
   return distance;
 }
 
-String scanAll() {
+string scanAll() {
   scanRSSI();
 
-  String payload = "{";
+  string payload = "{";
   payload += "\"r1\":[" + rssi1_data + "],";
   payload += "\"r2\":[" + rssi2_data + "],";
   payload += "\"r3\":[" + rssi3_data + "],";
@@ -75,7 +67,7 @@ String scanAll() {
   float distance2 = scanDistance(trigPin2, echoPin2);
   float distance3 = scanDistance(trigPin3, echoPin3);
 
-  payload += "\"u1\":" + String(distance1) + ",\"u2\":" + String(distance2) + ",\"u3\":" + String(distance3) + "}";
+  payload += "\"u1\":" + to_string(distance1) + ",\"u2\":" + to_string(distance2) + ",\"u3\":" + to_string(distance3) + "}";
 
   return payload;
 }
@@ -123,15 +115,28 @@ void setup() {
   Serial.println("\nWiFi Connected");
   client.setServer(mqttHost, mqttPort);
 
-  BLEDevice::init("ESP32_BLE_Scanner");
-  pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new ESPAdvertisedDeviceCallbacks());
+  NimBLEDevice::init("");
+  pBLEScan = NimBLEDevice::getScan();
+
+  const char* macAdresses[] = {
+    "68:25:dd:44:e6:c2",
+    "b0:a7:32:2a:69:56",
+    "b0:a7:32:14:26:6a",
+  };
+
+  for (int i = 0; i < 3; i++) {
+    NimBLEAddress pAddress(macAdresses[i], BLE_ADDR_PUBLIC);
+    NimBLEDevice::whiteListAdd(pAddress);
+  }
+
+  pBLEScan->setScanCallbacks(&scanCallbacks);
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(100);
+  pBLEScan->setFilterPolicy(BLE_HCI_SCAN_FILT_USE_WL);
   pBLEScan->setWindow(99);
 
-  String payload = scanAll();
-  Serial.println(payload);
+  string payload = scanAll();
+  Serial.println(payload.c_str());
   publish((topic + "/start").c_str(), payload.c_str());
 }
 
@@ -140,8 +145,8 @@ void loop() {
     reconnect();
   }
   client.loop();
-  String payload = scanAll();
-  Serial.println(payload);
+  string payload = scanAll();
+  Serial.println(payload.c_str());
   publish((topic + "/path").c_str(), payload.c_str());
-  delay(1000);
+  delay(500);
 }
