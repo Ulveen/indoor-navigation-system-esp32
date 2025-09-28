@@ -6,20 +6,13 @@
 #include <PubSubClient.h>
 #include <string>
 
+#define SOUND_SPEED 0.0343
+
 using namespace std;
 
-const char* ssid = "Xiaomi 12T";
-const char* password = "hehehehe";
-const char* mqttHost = "148.230.101.206";
-const uint16_t mqttPort = 1883;
-const char* mqttUser = "dk";
-const char* mqttPass = "dkdkdk";
-
-const String rssiTopic = "things/rssi";
-const String ultrasonicTopic = "things/ultrasonic";
-
-WiFiClient espClient;
-PubSubClient client(espClient);
+const int trigPin1 = 12, echoPin1 = 14, trigPin2 = 27, echoPin2 = 26, trigPin3 = 25, echoPin3 = 33, mqttPort = 1883;
+const char *ssid = "Xiaomi 12T", *password = "hehehehe", *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk";
+const String topic = "things/rssi";
 
 BLEScan* pBLEScan;
 
@@ -45,6 +38,51 @@ class ESPAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
   }
 };
 
+void scanRSSI() {
+  rssi1_data = "";
+  rssi2_data = "";
+  rssi3_data = "";
+
+  for (int i = 0; i < 7; i++) {
+    pBLEScan->start(1, false);
+    pBLEScan->clearResults();
+    delay(50);
+  }
+}
+
+float scanDistance(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  long duration = pulseIn(echoPin, HIGH, 25000);
+
+  float distance = duration * 0.0343 / 2.0;
+  return distance;
+}
+
+String scanAll() {
+  scanRSSI();
+
+  String payload = "{";
+  payload += "\"r1\":[" + rssi1_data + "],";
+  payload += "\"r2\":[" + rssi2_data + "],";
+  payload += "\"r3\":[" + rssi3_data + "],";
+
+  float distance1 = scanDistance(trigPin1, echoPin1);
+  float distance2 = scanDistance(trigPin2, echoPin2);
+  float distance3 = scanDistance(trigPin3, echoPin3);
+
+  payload += "\"u1\":" + String(distance1) + ",\"u2\":" + String(distance2) + ",\"u3\":" + String(distance3) + "}";
+
+  return payload;
+}
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
 void reconnect() {
   while (!client.connected()) {
     if (client.connect("ESP32Client", mqttUser, mqttPass)) {
@@ -56,30 +94,28 @@ void reconnect() {
   }
 }
 
-String scan() {
-  for (int i = 0; i < 7; i++) {
-    pBLEScan->start(1, false);
-    pBLEScan->clearResults();
-    delay(50);
+void publish(const char* topic, const char* payload) {
+  if (!client.connected()) {
+    reconnect();
   }
-
-  String payload = "{";
-  payload += "\"rssi1\":[" + rssi1_data + "],";
-  payload += "\"rssi2\":[" + rssi2_data + "],";
-  payload += "\"rssi3\":[" + rssi3_data + "]";
-  payload += "}";
-
-  rssi1_data = "";
-  rssi2_data = "";
-  rssi3_data = "";
-
-  return payload;
+  if (client.publish(topic, payload)) {
+    Serial.println("Publish success");
+  } else {
+    Serial.println("Publish failed");
+    Serial.println(client.state());
+  }
 }
 
 void setup() {
   Serial.begin(115200);
+  pinMode(trigPin1, OUTPUT);
+  pinMode(echoPin1, INPUT);
+  pinMode(trigPin2, OUTPUT);
+  pinMode(echoPin2, INPUT);
+  pinMode(trigPin3, OUTPUT);
+  pinMode(echoPin3, INPUT);
+
   WiFi.begin(ssid, password);
-  Serial.println("\nConnecting to WiFi...");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(500);
@@ -94,18 +130,9 @@ void setup() {
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
 
-  String payload = scan();
+  String payload = scanAll();
   Serial.println(payload);
-
-  if (!client.connected()) {
-    reconnect();
-  }
-
-  if (client.publish((rssiTopic + "/start").c_str(), payload.c_str())) {
-    Serial.println("Publish success");
-  } else {
-    Serial.println("Publish failed");
-  }
+  publish((topic + "/start").c_str(), payload.c_str());
 }
 
 void loop() {
@@ -113,12 +140,8 @@ void loop() {
     reconnect();
   }
   client.loop();
-  String payload = scan();
+  String payload = scanAll();
   Serial.println(payload);
-  if (client.publish((rssiTopic + "/start").c_str(), payload.c_str())) {
-    Serial.println("Publish success");
-  } else {
-    Serial.println("Publish failed");
-  }
+  publish((topic + "/path").c_str(), payload.c_str());
   delay(1000);
 }
