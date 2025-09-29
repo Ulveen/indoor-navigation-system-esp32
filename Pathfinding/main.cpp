@@ -1,6 +1,8 @@
 #include <iostream>
 #include <vector>
 #include <queue>
+#include <windows.h>
+
 #define W 15
 #define H 15
 
@@ -14,6 +16,8 @@
 #define START 2
 #define END 3
 #define VISITED 4
+#define IN_QUEUE 5
+#define BACKTRACKED 6
 
 #define INVALID -1
 #define FORWARD 0
@@ -32,14 +36,16 @@ struct Tile
     int x;
     int distance;
 
-    Tile(int y, int x, int distance) : y(y), x(x), distance(distance) {}
+    Tile *prev;
+
+    Tile(int y, int x, int distance, Tile *prev1) : y(y), x(x), distance(distance), prev(prev1) {}
 };
 
 struct TilePriority
 {
-    bool operator()(const Tile &a, const Tile &b) const
+    bool operator()(const Tile *a, const Tile *b) const
     {
-        return a.distance > b.distance;
+        return a->distance > b->distance;
     }
 };
 
@@ -57,20 +63,22 @@ int world[H][W] = {
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1},
-    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1},
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1}};
 int distances[H][W] = {0};
 
-int currDirection, currX, currY;
+int calcDistance(int y1, int x1, int y2, int x2)
+{
+    return abs(y1 - y2) + abs(x1 - x2);
+}
+
+int currDirection;
+Tile *currTile;
 
 void initWorld()
 {
     world[START_Y][START_X] = START;
     world[END_Y][END_X] = END;
-
-    currDirection = FORWARD;
-    currX = START_X;
-    currY = START_Y;
 }
 
 void initDistance()
@@ -79,7 +87,7 @@ void initDistance()
     {
         for (int j = 0; j < W; j++)
         {
-            distances[i][j] = abs(END_Y - i) + abs(END_X - j);
+            distances[i][j] = calcDistance(END_Y, END_X, i, j);
         }
     }
 }
@@ -113,23 +121,79 @@ bool isOutOfBounds(int y, int x)
     return y < 0 || x < 0 || y > H - 1 || x > W - 1;
 }
 
+bool backtrack(Tile *target)
+{
+    printf("\n\n");
+    showMap();
+    printf("Backtracking...\n");
+    printf("Target y: %d x: %d\n", target->y, target->x);
+    printf("Curr y: %d x: %d\n", currTile->y, currTile->x);
+    scanf("[^\n]");
+    getchar();
+
+    while (currTile)
+    {
+        world[currTile->y][currTile->x] = BACKTRACKED;
+        system("cls");
+        printf("\n");
+        showWorld();
+        Sleep(500);
+        int distance = calcDistance(target->y, target->x, currTile->y, currTile->x);
+        if (distance <= 1)
+        {
+            return true;
+        }
+        currTile = currTile->prev;
+    }
+    return false;
+}
+
 void solve()
 {
     bool found = false;
 
-    priority_queue<Tile, vector<Tile>, TilePriority> pq;
-    pq.push(Tile(START_X, START_Y, distances[START_X][START_Y]));
+    priority_queue<Tile *, vector<Tile *>, TilePriority> pq;
+    currTile = new Tile(START_Y, START_X, distances[START_Y][START_X], nullptr);
+    pq.push(currTile);
+
     while (!found && !pq.empty())
     {
-        Tile curr = pq.top();
-        pq.pop();
+        Tile *top = pq.top();
 
-        printf("%d %d\n", curr.y, curr.x);
+        top->prev = currTile;
+        int distance = calcDistance(top->y, top->x, currTile->y, currTile->x);
+
+        if (distance > 1)
+        {
+            bool success = backtrack(top);
+            if (!success)
+            {
+                printf("Backtrack failed\n");
+                break;
+            }
+            else
+            {
+                printf("Backtrack success\n");
+            }
+            scanf("[^\n]");
+            getchar();
+        }
+
+        if (top->y == END_Y && top->x == END_X)
+        {
+            found = true;
+            break;
+        }
+
+        currTile = top;
+
+        world[top->y][top->x] = VISITED;
+        pq.pop();
 
         for (int i = 0; i < 4; i++)
         {
-            int newX = curr.x + MOVE_X[i];
-            int newY = curr.y + MOVE_Y[i];
+            int newX = top->x + MOVE_X[i];
+            int newY = top->y + MOVE_Y[i];
 
             if (isOutOfBounds(newY, newX))
             {
@@ -138,17 +202,6 @@ void solve()
 
             int type = world[newY][newX];
 
-            if (type == END)
-            {
-                found = true;
-                break;
-            }
-
-            if (type == VISITED)
-            {
-                continue;
-            }
-
             if (type == WALL)
             {
                 distances[newY][newX] = INVALID;
@@ -156,14 +209,18 @@ void solve()
 
             int newDistance = distances[newY][newX];
 
-            if (newDistance == INVALID)
+            if (newDistance == INVALID || type == VISITED || type == IN_QUEUE || type == BACKTRACKED)
             {
                 continue;
             }
 
-            world[newY][newX] = VISITED;
-            pq.push(Tile(newY, newX, newDistance));
+            world[newY][newX] = IN_QUEUE;
+            pq.push(new Tile(newY, newX, newDistance, nullptr));
         }
+
+        system("cls");
+        showWorld();
+        Sleep(500);
     }
 
     if (found)
@@ -196,10 +253,11 @@ int main()
     showMap();
 
     scanf("[^\n]");
-    fflush(stdin);
+    getchar();
 
+    system("cls");
     solve();
 
     scanf("[^\n]");
-    fflush(stdin);
+    getchar();
 }
