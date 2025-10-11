@@ -1,13 +1,13 @@
 #define SOUND_SPEED 0.0343
 
-const int trigPin1 = 12;
-const int echoPin1 = 14;
+const int trigPin1 = 16;
+const int echoPin1 = 4;
 
-const int trigPin2 = 27;
-const int echoPin2 = 26;
+const int trigPin2 = 17;
+const int echoPin2 = 5;
 
-const int trigPin3 = 25;
-const int echoPin3 = 33;
+const int trigPin3 = 18;
+const int echoPin3 = 19;
 
 float distance1 = 0;
 float distance2 = 0;

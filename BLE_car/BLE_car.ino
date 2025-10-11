@@ -19,7 +19,7 @@ int dutyCycle = 255;
 String dir;
 String en;
 
-// const int trigPin1 = 12, echoPin1 = 14, trigPin2 = 27, echoPin2 = 26, trigPin3 = 25, echoPin3 = 33,
+const int trigPin1 = 16, echoPin1 = 4, trigPin2 = 17, echoPin2 = 5, trigPin3 = 18, echoPin3 = 19;
 const int mqttPort = 1883;
 const char *ssid = "Br", *password = "dk-dutisa", *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk";
 const string topicRssi = "things/rssi", topicMotor = "things/motor/";
@@ -127,17 +127,17 @@ void scanRSSI() {
 }
 
 float scanDistance(int trigPin, int echoPin) {
-  // digitalWrite(trigPin, LOW);
-  // delayMicroseconds(2);
-  // digitalWrite(trigPin, HIGH);
-  // delayMicroseconds(10);
-  // digitalWrite(trigPin, LOW);
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
 
-  // long duration = pulseIn(echoPin, HIGH, 25000);
+  long duration = pulseIn(echoPin, HIGH, 25000);
 
-  // float distance = duration * 0.0343 / 2.0;
-  // return distance;
-  return 0;
+  float distance = duration * 0.0343 / 2.0;
+  return distance;
+  // return 0;
 }
 
 string scanAll() {
@@ -148,13 +148,13 @@ string scanAll() {
   payload += "\"r2\":[" + rssi2_data + "],";
   payload += "\"r3\":[" + rssi3_data + "],";
 
-  // float distance1 = scanDistance(trigPin1, echoPin1);
-  // float distance2 = scanDistance(trigPin2, echoPin2);
-  // float distance3 = scanDistance(trigPin3, echoPin3);
+  float distance1 = scanDistance(trigPin1, echoPin1);
+  float distance2 = scanDistance(trigPin2, echoPin2);
+  float distance3 = scanDistance(trigPin3, echoPin3);
 
-  float distance1 = 0;
-  float distance2 = 0;
-  float distance3 = 0;
+  // float distance1 = 0;
+  // float distance2 = 0;
+  // float distance3 = 0;
 
   payload += "\"u1\":" + to_string(distance1) + ",\"u2\":" + to_string(distance2) + ",\"u3\":" + to_string(distance3) + "}";
 
@@ -190,12 +190,12 @@ void publish(const char* topic, const char* payload) {
 
 void setup() {
   Serial.begin(115200);
-  // pinMode(trigPin1, OUTPUT);
-  // pinMode(echoPin1, INPUT);
-  // pinMode(trigPin2, OUTPUT);
-  // pinMode(echoPin2, INPUT);
-  // pinMode(trigPin3, OUTPUT);
-  // pinMode(echoPin3, INPUT);
+  pinMode(trigPin1, OUTPUT);
+  pinMode(echoPin1, INPUT);
+  pinMode(trigPin2, OUTPUT);
+  pinMode(echoPin2, INPUT);
+  pinMode(trigPin3, OUTPUT);
+  pinMode(echoPin3, INPUT);
 
   pinMode(motor1Pin1, OUTPUT);
   pinMode(motor1Pin2, OUTPUT);
@@ -251,7 +251,7 @@ void loop() {
     reconnect();
   }
   client.loop();
-  string payload = scanAll();
-  Serial.println(payload.c_str());
-  publish((topicRssi + "/path").c_str(), payload.c_str());
+  // string payload = scanAll();
+  // Serial.println(payload.c_str());
+  // publish((topicRssi + "/path").c_str(), payload.c_str());
 }
