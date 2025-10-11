@@ -6,11 +6,11 @@
 
 using namespace std;
 
-// motor pin settings
+// Pin untuk menggerakan motor
 const int motor1Pin1 = 27, motor1Pin2 = 26, enable1Pin = 14;
 const int motor2Pin1 = 32, motor2Pin2 = 33, enable2Pin = 25;
 
-// Setting PWM properties
+// Konfigurasi motor
 const int freq = 30000;
 const int pwmChannel1 = 0,pwmChannel2 = 1;
 const int resolution = 8;
@@ -19,7 +19,10 @@ int dutyCycle = 255;
 String dir;
 String en;
 
+// Pin untuk mengaktifkan ultrasonic sensor
 const int trigPin1 = 16, echoPin1 = 4, trigPin2 = 17, echoPin2 = 5, trigPin3 = 18, echoPin3 = 19;
+
+// Konfigurasi mqtt server
 const int mqttPort = 1883;
 const char *ssid = "Br", *password = "dk-dutisa", *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk";
 const string topicRssi = "things/rssi", topicMotor = "things/motor/";
@@ -29,8 +32,7 @@ string rssi1_data = "", rssi2_data = "", rssi3_data = "";
 int scanTimeMs = 200;
 NimBLEScan* pBLEScan;
 
-
-
+// Logic untuk scan RSSI data
 class ScanCallback : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) {
     string address = advertisedDevice->getAddress().toString();
@@ -48,6 +50,7 @@ class ScanCallback : public NimBLEScanCallbacks {
   }
 } scanCallbacks;
 
+// Logic untuk menggerakkan motor
 void motorLogic() {
   printf("En : %s Dir %s\n", en,dir);
   ledcWrite(enable1Pin, dutyCycle);   
@@ -92,6 +95,7 @@ void motorLogic() {
   }
 }
 
+// Function callback subscribe mqtt server
 void callback(char* topic, uint8_t* payload, unsigned int length) {
   Serial.print("Message arrived on topic: ");
   Serial.println(topic);
@@ -115,6 +119,7 @@ void callback(char* topic, uint8_t* payload, unsigned int length) {
   }
 }
 
+// Function untuk scan RSSI data
 void scanRSSI() {
   rssi1_data = "";
   rssi2_data = "";
@@ -126,6 +131,7 @@ void scanRSSI() {
   pBLEScan->clearResults();
 }
 
+// Function untuk scan distance masing-masing ultrasonic sensor
 float scanDistance(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -140,6 +146,7 @@ float scanDistance(int trigPin, int echoPin) {
   // return 0;
 }
 
+// Logic untuk scan + format data
 string scanAll() {
   scanRSSI();
 
@@ -152,10 +159,6 @@ string scanAll() {
   float distance2 = scanDistance(trigPin2, echoPin2);
   float distance3 = scanDistance(trigPin3, echoPin3);
 
-  // float distance1 = 0;
-  // float distance2 = 0;
-  // float distance3 = 0;
-
   payload += "\"u1\":" + to_string(distance1) + ",\"u2\":" + to_string(distance2) + ",\"u3\":" + to_string(distance3) + "}";
 
   return payload;
@@ -164,6 +167,7 @@ string scanAll() {
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+// Function untuk connect ke mqtt server
 void reconnect() {
   while (!client.connected()) {
     if (client.connect("ESP32Client", mqttUser, mqttPass)) {
@@ -176,6 +180,7 @@ void reconnect() {
   }
 }
 
+// Function untuk publish ke mqtt server
 void publish(const char* topic, const char* payload) {
   if (!client.connected()) {
     reconnect();
@@ -188,6 +193,7 @@ void publish(const char* topic, const char* payload) {
   }
 }
 
+// Function setup untuk konfigurasi pin, connect WiFi, whitelist BLE beacon, dan konfigurasi BLE scanner
 void setup() {
   Serial.begin(115200);
   pinMode(trigPin1, OUTPUT);
@@ -243,6 +249,7 @@ void setup() {
   publish((topicRssi + "/start").c_str(), payload.c_str());
 }
 
+// Main loop logic untuk send data dan terima input pergerakan motor
 void loop() {
   
   motorLogic();
@@ -251,7 +258,7 @@ void loop() {
     reconnect();
   }
   client.loop();
-  // string payload = scanAll();
-  // Serial.println(payload.c_str());
-  // publish((topicRssi + "/path").c_str(), payload.c_str());
+  string payload = scanAll();
+  Serial.println(payload.c_str());
+  publish((topicRssi + "/path").c_str(), payload.c_str());
 }
