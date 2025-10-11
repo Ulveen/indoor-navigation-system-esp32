@@ -50,20 +50,20 @@ struct TilePriority
 };
 
 char map[H][W + 1] = {
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "            #  ",
-    "               ",
+    "   ##########  ",
+    " E #        #  ",
+    "   ######## #  ",
+    "          # #  ",
+    "          # #  ",
+    "          # #  ",
+    "          # #  ",
+    "          # #  ",
+    "          # #  ",
+    "          # #  ",
+    "          # #  ",
+    "          # ###",
+    "          #    ",
+    "          #  S ",
     "               ",
 };
 
@@ -143,6 +143,17 @@ bool isOutOfBounds(int y, int x)
     return y < 0 || x < 0 || y > H - 1 || x > W - 1;
 }
 
+void handleTurn(Tile *target, Tile *from)
+{
+    int newDirection = getDirection(currTile->y, currTile->x, from->y, from->x);
+    if (newDirection != direction)
+    {
+        printf("Turning...\n");
+        direction = newDirection;
+        Sleep(500);
+    }
+}
+
 bool backtrack(Tile *target)
 {
     printf("\n\n");
@@ -159,16 +170,9 @@ bool backtrack(Tile *target)
         {
             return true;
         }
+
         Tile *prev = currTile->prev;
-        int newDirection = getDirection(currTile->y, currTile->x, prev->y, prev->x);
-
-        if (newDirection != direction)
-        {
-            printf("Turning...\n");
-            direction = newDirection;
-            Sleep(500);
-        }
-
+        handleTurn(currTile, prev);
         currTile = prev;
 
         system("cls");
@@ -176,6 +180,16 @@ bool backtrack(Tile *target)
         Sleep(1000);
     }
     return false;
+}
+
+int getDistance(int newY, int newX)
+{
+    if (isOutOfBounds(newY, newX) || visited[newY][newX] || map[newY][newX] == WALL)
+    {
+        return INVALID;
+    }
+
+    return distances[newY][newX];
 }
 
 void solve()
@@ -208,14 +222,7 @@ void solve()
             }
         }
 
-        int newDirection = getDirection(currTile->y, currTile->x, top->y, top->x);
-
-        if (newDirection != direction)
-        {
-            printf("Turning...\n");
-            direction = newDirection;
-            Sleep(500);
-        }
+        handleTurn(currTile, top);
 
         map[currTile->y][currTile->x] = VISITED;
 
@@ -233,29 +240,22 @@ void solve()
             int newX = top->x + MOVE_X[i];
             int newY = top->y + MOVE_Y[i];
 
-            if (isOutOfBounds(newY, newX) || visited[newY][newX])
+            int distance = getDistance(newY, newX);
+            distances[newY][newX] = distance;
+
+            if (distance == INVALID)
             {
                 continue;
             }
 
-            char type = map[newY][newX];
-
-            if (type == WALL)
+            if (map[newY][newX] != END)
             {
-                distances[newY][newX] = INVALID;
+                map[newY][newX] = IN_QUEUE;
             }
 
-            int newDistance = distances[newY][newX];
-
-            if (newDistance == INVALID)
-            {
-                continue;
-            }
-
-            map[newY][newX] = IN_QUEUE;
             visited[newY][newX] = true;
 
-            pq.push(new Tile(newY, newX, newDistance, nullptr));
+            pq.push(new Tile(newY, newX, distance, nullptr));
         }
 
         system("cls");
