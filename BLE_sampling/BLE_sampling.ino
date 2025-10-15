@@ -4,20 +4,26 @@
 #include <PubSubClient.h>
 #include <string>
 
-#define DISTANCE 1
+#define DATA_COUNT 50
+#define SAMPLING_COUNT 10
 
 using namespace std;
 
 NimBLEScan* pBLEScan;
-int rssiData[3][100];
+
+int currDistance = 4;
+int rssiData[3][DATA_COUNT];
 int counts[] = { 0, 0, 0 };
-bool sent[] = { false, false, false };
+int sentCount[] = { 0, 0, 0 };
+
+int lastScanned = -1;
+bool waiting = false;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 const int mqttPort = 1883;
 const char *ssid = "Xiaomi 12T", *password = "hehehehe", *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk";
-const string topic = "things/calibrate/";
+const string topic = "things/calibrate";
 
 class ScanCallback : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) {
@@ -32,12 +38,20 @@ class ScanCallback : public NimBLEScanCallbacks {
       idx = 2;
     }
 
-    if (idx == -1 || counts[idx] >= 100) {
+    if (idx == -1 || counts[idx] >= DATA_COUNT) {
       return;
+    }
+
+    if (waiting) {
+      if (idx == lastScanned) {
+        return;
+      }
+      waiting = false;
     }
 
     int rssi = advertisedDevice->getRSSI();
     rssiData[idx][counts[idx]++] = rssi;
+    lastScanned = idx;
   }
 } scanCallbacks;
 
@@ -45,7 +59,6 @@ void reconnect() {
   while (!client.connected()) {
     if (client.connect("ESP32Client", mqttUser, mqttPass)) {
       Serial.println("MQTT Connected");
-      client.subscribe("things/motor/");
     } else {
       Serial.print(client.state());
       delay(5000);
@@ -70,12 +83,12 @@ bool publish(const char* topic, const char* payload) {
 bool sendData(int idx) {
   StaticJsonDocument<1024> doc;
 
-  doc["id"] = idx;
-  doc["distance"] = DISTANCE;
+  doc["a"] = idx;
+  doc["b"] = currDistance;
 
-  JsonArray data = doc.createNestedArray("data");
-  for (int i = 0; i < 100; i++) {
-    data.add(rssiData[idx][i]);
+  JsonArray data = doc.createNestedArray("c");
+  for (int i = 0; i < DATA_COUNT; i++) {
+    data.add(-1 * rssiData[idx][i]);
   }
 
   String output;
@@ -86,7 +99,6 @@ bool sendData(int idx) {
   Serial.println(":");
   Serial.println(output);
 
-  publish(topic.c_str(), output.c_str());
   return publish(topic.c_str(), output.c_str());
 }
 
@@ -121,25 +133,38 @@ void setup() {
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
+
+  pBLEScan->setDuplicateFilter(false);
   pBLEScan->setFilterPolicy(BLE_HCI_SCAN_FILT_USE_WL);
+
+  pBLEScan->start(0, false);
 }
 
 
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
   client.loop();
 
-  pBLEScan->start(1, false);
-
   for (int i = 0; i < 3; i++) {
-    if (counts[i] >= 100 && !sent[i]) {
+    if (counts[i] >= DATA_COUNT && sentCount[i] < SAMPLING_COUNT) {
       if (sendData(i)) {
-        sent[i] = true;
+        sentCount[i]++;
+        counts[i] = 0;
       }
     }
   }
 
-  delay(200);
+  if (sentCount[0] >= SAMPLING_COUNT && sentCount[1] >= SAMPLING_COUNT && sentCount[2] >= SAMPLING_COUNT && currDistance < 5) {
+    sentCount[0] = 0;
+    sentCount[1] = 0;
+    sentCount[2] = 0;
+
+    counts[0] = 0;
+    counts[1] = 0;
+    counts[2] = 0;
+
+    currDistance++;
+    waiting = true;
+  }
+
+  delay(500);
 }
