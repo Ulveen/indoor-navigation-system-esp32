@@ -1,3 +1,4 @@
+// #include <iostream>
 #include <string>
 #include <queue>
 #include <vector>
@@ -25,6 +26,7 @@ enum Direction {
   BACK,
   LEFT
 };
+Direction currDirection = BACK;
 
 struct MotorPin {
   int pin1;
@@ -55,6 +57,11 @@ struct DirectionInfo {
 };
 
 int weights[GRID_HEIGHT][GRID_WIDTH] = { 0 };
+
+Direction getRotation(Direction targetDirection) {
+  int diff = (currDirection - targetDirection + 4) % 4;
+  return static_cast<Direction>(diff);
+}
 
 void printWeights() {
   for (int i = 0; i < GRID_HEIGHT; i++) {
@@ -164,6 +171,7 @@ void handleMove(Direction dir) {
     turnRight();
   } else if (dir == BACK) {
     turn180();
+    moveForward();
   }
   ledcWrite(leftMotor.enablePin, 0);
   ledcWrite(rightMotor.enablePin, 0);
@@ -189,14 +197,16 @@ void pathfind() {
   for (DirectionInfo dirInfo : directions) {
     int newY = currCoord.y + dirInfo.dy;
     int newX = currCoord.x + dirInfo.dx;
+    Direction newDirection = getRotation(dirInfo.dir);
 
-    if (isOutOfBounds(newY, newX) || weights[newY][newX] > weights[currCoord.y][currCoord.x] || isObstructed(dirInfo.dir)) {
+    if (isOutOfBounds(newY, newX) || weights[newY][newX] > weights[currCoord.y][currCoord.x] || isObstructed(newDirection)) {
       continue;
     }
 
-    handleMove(dirInfo.dir);
+    handleMove(newDirection);
     currCoord.y = newY;
     currCoord.x = newX;
+    currDirection = newDirection;
     moved = true;
 
     break;
