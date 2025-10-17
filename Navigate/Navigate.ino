@@ -13,7 +13,6 @@
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
 #define LINEAR_MS 300
-#define TURN_MS 450
 #define MOTOR_DUTY_CYCLE 255
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
@@ -60,12 +59,10 @@ struct UltrasonicPin {
   const int echoPin;
 } rightUltrasonic = { 16, 4 }, frontUltrasonic = { 17, 5 }, leftUltrasonic = { 18, 19 };
 
-Adafruit_MPU6050 mpu;
-
 struct Coordinate {
   int y;
   int x;
-} currCoord = { 0, 0 }, endCoord = { GRID_HEIGHT - 1, GRID_WIDTH - 1 };
+} currCoord = { 0, 0 }, endCoord;
 
 struct DirectionInfo {
   int dy;
@@ -74,12 +71,13 @@ struct DirectionInfo {
 } directions[] = {
   { -1, 0, FRONT },
   { 0, 1, RIGHT },
-  { -1, 0, BACK },
+  { 1, 0, BACK },
   { 0, -1, LEFT }
 };
 
 int weights[GRID_HEIGHT][GRID_WIDTH] = { 0 };
 
+Adafruit_MPU6050 mpu;
 NimBLEScan* pBLEScan;
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -91,6 +89,8 @@ const char *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk"
 StaticJsonDocument<256> doc;
 JsonArray rssi1, rssi2, rssi3;
 const string rssiBaseTopic = "things/rssi";
+const string startTopic = "navigation/start/";
+const string endTopic = "navigation/end/";
 
 void resetDoc() {
   rssi1 = doc.createNestedArray("r1");
@@ -156,11 +156,24 @@ bool publishSensorData(string endpoint) {
 
 class ScanCallback : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) {
-    if (samplingState != SAMPLING) {
+    if (samplingState == IDLE) {
+      resetDoc();
+      samplingState = SAMPLING;
+    }
+    else if (samplingState != SAMPLING) {
       return;
     }
 
     string address = advertisedDevice->getAddress().toString();
+
+    if (rssi1.size() == RSSI_COUNT && rssi2.size() == RSSI_COUNT && rssi3.size() == RSSI_COUNT) {
+      if (car == RUNNING) {
+        sampleDistance();
+        publishSensorData("/path");
+      }
+      return;
+    }
+
     int rssi = advertisedDevice->getRSSI();
 
     if (address == "68:25:dd:44:e6:c2" && rssi1.size() < RSSI_COUNT) {
@@ -194,16 +207,16 @@ void callback(char* topic, uint8_t* payload, unsigned int length) {
   //   en = jsonDoc["en"].as<String>();
   // }
 
-  // if (topic == startTopic) {
-  //   car = STARTED;
-  // }
-  // else if (topic == endTopic) {
-  //   car = STOPPED;
-  // }
+  if (topic == startTopic) {
+    x = jsonDoc["x"].as<int>();
+    y = jsonDoc["y"].as<int>();
+    endCoord = { y, x };
+    car = STARTED;
+  }
 }
 
 Direction getRotation(Direction targetDirection) {
-  int diff = (currDirection - targetDirection + 4) % 4;
+  int diff = (targetDirection - currDirection + 4) % 4;
   return static_cast<Direction>(diff);
 }
 
@@ -337,12 +350,17 @@ void pathfind() {
   for (DirectionInfo dirInfo : directions) {
     int newY = currCoord.y + dirInfo.dy;
     int newX = currCoord.x + dirInfo.dx;
+    Direction newDirection = getRotation(dirInfo.dir);
 
-    if (isOutOfBounds(newY, newX) || weights[newY][newX] > weights[currCoord.y][currCoord.x] || isObstructed(dirInfo.dir)) {
+    if (isOutOfBounds(newY, newX) || weights[newY][newX] > weights[currCoord.y][currCoord.x]) {
       continue;
     }
 
-    Direction newDirection = getRotation(dirInfo.dir);
+    if (isObstructed(newDirection)) {
+      weights[newY][newX] = INT_MAX;
+      continue;
+    }
+
     handleMove(newDirection);
     moved = true;
     stoppedCount = 0;
@@ -445,24 +463,19 @@ void setup() {
 }
 
 void startCar() {
-  endCoord = { GRID_HEIGHT - 1, GRID_WIDTH - 1 };
   floodfill();
+  printWeights();
   car = RUNNING;
 }
 
 void stopCar() {
   samplingState = PAUSED;
-  Serial.println("Car stopped");
+  publish(endTopic.c_str(), "");
   car = WAITING;
 }
 
 void loop() {
   if (car == RUNNING) {
-    if (samplingState == IDLE) {
-      resetDoc();
-      samplingState = SAMPLING;
-    }
-
     if (rssi1.size() == RSSI_COUNT && rssi2.size() == RSSI_COUNT && rssi3.size() == RSSI_COUNT) {
       sampleDistance();
       publishSensorData("/path");
