@@ -59,6 +59,8 @@ struct UltrasonicPin {
   const int echoPin;
 } rightUltrasonic = { 16, 4 }, frontUltrasonic = { 17, 5 }, leftUltrasonic = { 18, 19 };
 
+Adafruit_MPU6050 mpu;
+
 struct Coordinate {
   int y;
   int x;
@@ -197,7 +199,6 @@ void callback(char* topic, uint8_t* payload, unsigned int length) {
   // else if (topic == endTopic) {
   //   car = STOPPED;
   // }
-
 }
 
 Direction getRotation(Direction targetDirection) {
@@ -262,6 +263,36 @@ void setMotorState(MotorPin motor, MotorState state) {
   }
 }
 
+void rotateByAngle(float targetAngle) {
+  float currentZAngle = 0.0;
+  unsigned long lastTime = millis();
+
+  currentZAngle = 0.0;
+
+  if (targetAngle > 0) {
+    setMotorState(leftMotor, FORWARD);
+    setMotorState(rightMotor, REVERSE);
+  } else {
+    setMotorState(leftMotor, REVERSE);
+    setMotorState(rightMotor, FORWARD);
+  }
+
+  while (abs(currentZAngle) < abs(targetAngle)) {
+    unsigned long currentTime = millis();
+    float dt = (currentTime - lastTime) / 1000.0;
+    lastTime = currentTime;
+
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    float zRate = g.gyro.z;
+    currentZAngle += (zRate * 180.0 / M_PI) * dt;
+  }
+
+  setMotorState(leftMotor, STOP);
+  setMotorState(rightMotor, STOP);
+}
+
 void moveForward() {
   setMotorState(leftMotor, FORWARD);
   setMotorState(rightMotor, FORWARD);
@@ -269,21 +300,15 @@ void moveForward() {
 }
 
 void turnLeft() {
-  setMotorState(leftMotor, STOP);
-  setMotorState(rightMotor, FORWARD);
-  delay(TURN_MS);
+  rotateByAngle(-90.0);
 }
 
 void turnRight() {
-  setMotorState(leftMotor, FORWARD);
-  setMotorState(rightMotor, STOP);
-  delay(TURN_MS);
+  rotateByAngle(90.0);
 }
 
 void turn180() {
-  setMotorState(leftMotor, FORWARD);
-  setMotorState(rightMotor, STOP);
-  delay(TURN_MS * 2);
+  rotateByAngle(180.0);
 }
 
 void handleMove(Direction dir) {
@@ -387,6 +412,12 @@ void setupNetwork() {
 }
 
 void setupPins() {
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) delay(10);
+  }
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+
   pinMode(rightUltrasonic.trigPin, OUTPUT);
   pinMode(frontUltrasonic.trigPin, OUTPUT);
   pinMode(leftUltrasonic.trigPin, OUTPUT);
@@ -454,14 +485,11 @@ void loop() {
     if (currCoord.y != endCoord.y || currCoord.x != endCoord.y) {
       pathfind();
     }
-  }
-  else if (car == STARTED) {
+  } else if (car == STARTED) {
     startCar();
-  }
-  else if (car == STOPPED) {
+  } else if (car == STOPPED) {
     stopCar();
-  }
-  else if (car == WAITING) {
+  } else if (car == WAITING) {
     delay(1000);
   }
 }
