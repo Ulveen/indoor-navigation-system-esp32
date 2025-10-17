@@ -2,10 +2,8 @@
 #include <string>
 #include <vector>
 #include <climits>
-#include <WiFi.h>
 #include <Wire.h>
 #include <ArduinoJson.h>
-#include <PubSubClient.h>
 #include <NimBLEDevice.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_MPU6050.h>
@@ -13,7 +11,6 @@
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
 #define LINEAR_MS 300
-#define TURN_MS 450
 #define MOTOR_DUTY_CYCLE 255
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
@@ -45,7 +42,7 @@ enum Direction {
 enum SamplingState {
   PAUSED,
   IDLE,
-  SAMPLING
+  SAMPLING,
 } samplingState = PAUSED;
 
 struct MotorPin {
@@ -61,6 +58,7 @@ struct UltrasonicPin {
 } rightUltrasonic = { 16, 4 }, frontUltrasonic = { 17, 5 }, leftUltrasonic = { 18, 19 };
 
 Adafruit_MPU6050 mpu;
+NimBLEScan* pBLEScan;
 
 struct Coordinate {
   int y;
@@ -74,52 +72,20 @@ struct DirectionInfo {
 } directions[] = {
   { -1, 0, FRONT },
   { 0, 1, RIGHT },
-  { -1, 0, BACK },
+  { 1, 0, BACK },
   { 0, -1, LEFT }
 };
 
 int weights[GRID_HEIGHT][GRID_WIDTH] = { 0 };
 
-NimBLEScan* pBLEScan;
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-const int mqttPort = 1883;
-const char *ssid = "Xiaomi 12T", *password = "hehehehe";
-const char *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk";
-
 StaticJsonDocument<256> doc;
 JsonArray rssi1, rssi2, rssi3;
-const string rssiBaseTopic = "things/rssi";
+string rssiBaseTopic = "things/rssi";
 
 void resetDoc() {
   rssi1 = doc.createNestedArray("r1");
   rssi2 = doc.createNestedArray("r2");
   rssi3 = doc.createNestedArray("r3");
-}
-
-void reconnect() {
-  while (!client.connected()) {
-    if (client.connect("ESP32Client", mqttUser, mqttPass)) {
-      Serial.println("MQTT Connected");
-    } else {
-      Serial.print(client.state());
-    }
-  }
-}
-
-bool publish(const char* topic, const char* payload) {
-  if (!client.connected()) {
-    reconnect();
-  }
-  if (client.publish(topic, payload)) {
-    Serial.println("Publish success");
-    return true;
-  } else {
-    Serial.println("Publish failed");
-    Serial.println(client.state());
-    return false;
-  }
 }
 
 float scanDistance(UltrasonicPin sensor) {
@@ -131,6 +97,7 @@ float scanDistance(UltrasonicPin sensor) {
 
   long duration = pulseIn(sensor.echoPin, HIGH, 25000);
   float distance = duration * SOUND_SPEED / 2.0;
+  Serial.printf("Distance %d: %f\n", sensor.trigPin, distance);
 
   if (distance < 2.0 || distance > 400.0) {
     return -1;
@@ -147,11 +114,13 @@ void sampleDistance() {
 bool publishSensorData(string endpoint) {
   string topic = rssiBaseTopic + endpoint;
 
-  char payload[256];
-  serializeJson(doc, payload);
+  Serial.print("Publishing to: ");
+  Serial.println(topic.c_str());
+  serializeJsonPretty(doc, Serial);
+  Serial.println();
 
   samplingState = IDLE;
-  return publish(topic.c_str(), payload);
+  return true;
 }
 
 class ScanCallback : public NimBLEScanCallbacks {
@@ -161,6 +130,12 @@ class ScanCallback : public NimBLEScanCallbacks {
     }
 
     string address = advertisedDevice->getAddress().toString();
+
+    if (rssi1.size() == RSSI_COUNT && rssi2.size() == RSSI_COUNT && rssi3.size() == RSSI_COUNT) {
+      sampleDistance();
+      publishSensorData("/path");
+    }
+
     int rssi = advertisedDevice->getRSSI();
 
     if (address == "68:25:dd:44:e6:c2" && rssi1.size() < RSSI_COUNT) {
@@ -203,7 +178,7 @@ void callback(char* topic, uint8_t* payload, unsigned int length) {
 }
 
 Direction getRotation(Direction targetDirection) {
-  int diff = (currDirection - targetDirection + 4) % 4;
+  int diff = (targetDirection - currDirection + 4) % 4;
   return static_cast<Direction>(diff);
 }
 
@@ -225,6 +200,8 @@ bool isOutOfBounds(int y, int x) {
 }
 
 void floodfill() {
+  Serial.println("Floodfilling");
+
   bool isVisited[GRID_HEIGHT][GRID_WIDTH] = { false };
 
   queue<Coordinate> q;
@@ -236,9 +213,11 @@ void floodfill() {
     Coordinate coord = q.front();
     q.pop();
 
+    // Serial.printf("%d %d\n", coord.y, coord.x);
+
     for (DirectionInfo dirInfo : directions) {
       int newY = coord.y + dirInfo.dy;
-      int newX = coord.x + dirInfo.dy;
+      int newX = coord.x + dirInfo.dx;
 
       if (isOutOfBounds(newY, newX) || isVisited[newY][newX] || weights[newY][newX] == INT_MAX) {
         continue;
@@ -276,7 +255,7 @@ void rotateByAngle(float targetAngle) {
     setMotorState(rightMotor, FORWARD);
   }
 
-  Serial.println("Starting rotation");
+  Serial.printf("Starting rotation %f\n", targetAngle);
   while (abs(currentZAngle) < abs(targetAngle)) {
     unsigned long currentTime = millis();
     float dt = (currentTime - lastTime) / 1000.0;
@@ -338,11 +317,18 @@ void pathfind() {
     int newY = currCoord.y + dirInfo.dy;
     int newX = currCoord.x + dirInfo.dx;
 
-    if (isOutOfBounds(newY, newX) || weights[newY][newX] > weights[currCoord.y][currCoord.x] || isObstructed(dirInfo.dir)) {
+    Serial.printf("%d %d\n", newY, newX);
+
+    Direction newDirection = getRotation(dirInfo.dir);
+    if (isOutOfBounds(newY, newX) || weights[newY][newX] > weights[currCoord.y][currCoord.x]) {
       continue;
     }
 
-    Direction newDirection = getRotation(dirInfo.dir);
+    if (isObstructed(newDirection)) {
+      weights[newY][newX] = INT_MAX;
+      continue;
+    }
+
     handleMove(newDirection);
     moved = true;
     stoppedCount = 0;
@@ -350,6 +336,8 @@ void pathfind() {
     currCoord.y = newY;
     currCoord.x = newX;
     currDirection = dirInfo.dir;
+
+    Serial.printf("y: %d x: %d dir: %d\n", newY, newX, currDirection);
 
     break;
   }
@@ -367,6 +355,7 @@ void pathfind() {
 }
 
 void setupNetwork() {
+  Serial.println("Setting up network");
   NimBLEDevice::init("");
   pBLEScan = NimBLEDevice::getScan();
 
@@ -381,16 +370,6 @@ void setupNetwork() {
     NimBLEDevice::whiteListAdd(pAddress);
   }
 
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(100);
-  }
-
-  Serial.println("\nWiFi Connected");
-  client.setServer(mqttHost, mqttPort);
-  client.setCallback(callback);
-
   pBLEScan->setScanCallbacks(&scanCallbacks);
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(100);
@@ -402,6 +381,7 @@ void setupNetwork() {
 }
 
 void setupPins() {
+  Serial.println("Setting up pins");
   if (!mpu.begin()) {
     Serial.println("Failed to find MPU6050 chip");
     while (1) delay(10);
@@ -429,8 +409,21 @@ void setupPins() {
   ledcAttachChannel(rightMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, leftMotor.pwmChannel);
 }
 
+void startCar() {
+  Serial.println("Starting car");
+
+  endCoord = { GRID_HEIGHT - 1, GRID_WIDTH - 1 };
+  floodfill();
+  printWeights();
+  car = RUNNING;
+}
+
 void setup() {
   Serial.begin(115200);
+
+  delay(7000);
+
+  Serial.println("Setting up");
 
   setupPins();
   setupNetwork();
@@ -442,12 +435,8 @@ void setup() {
   sampleDistance();
 
   while (!publishSensorData("/start")) {}
-}
 
-void startCar() {
-  endCoord = { GRID_HEIGHT - 1, GRID_WIDTH - 1 };
-  floodfill();
-  car = RUNNING;
+  startCar();
 }
 
 void stopCar() {
@@ -458,19 +447,16 @@ void stopCar() {
 
 void loop() {
   if (car == RUNNING) {
+    Serial.println("Running...");
     if (samplingState == IDLE) {
       resetDoc();
       samplingState = SAMPLING;
     }
 
-    if (rssi1.size() == RSSI_COUNT && rssi2.size() == RSSI_COUNT && rssi3.size() == RSSI_COUNT) {
-      sampleDistance();
-      publishSensorData("/path");
-      return;
-    }
-
     if (currCoord.y != endCoord.y || currCoord.x != endCoord.y) {
       pathfind();
+    } else {
+      car = STOPPED;
     }
   } else if (car == STARTED) {
     startCar();
