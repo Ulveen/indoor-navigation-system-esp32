@@ -12,13 +12,13 @@
 #define SOUND_SPEED 0.0343
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
-#define LINEAR_MS 550
-#define SLOW_MOTOR_DUTY_CYCLE 198
-#define FAST_MOTOR_DUTY_CYCLE 200
+#define LINEAR_MS 420
+#define SLOW_MOTOR_DUTY_CYCLE 227
+#define FAST_MOTOR_DUTY_CYCLE 230
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
 #define RSSI_COUNT 7
-#define DEGREE 81.0
+#define DEGREE 79
 
 using namespace std;
 
@@ -334,14 +334,14 @@ void moveForward() {
 }
 
 void handleMove(Direction dir) {
-  if (numSteps % 4 == 0) {
-    ledcWrite(leftMotor.enablePin, FAST_MOTOR_DUTY_CYCLE);
-    ledcWrite(rightMotor.enablePin, SLOW_MOTOR_DUTY_CYCLE);
-  }
-  else {
+  // if (numSteps % 6 == 0) {
+    // ledcWrite(leftMotor.enablePin, FAST_MOTOR_DUTY_CYCLE);
+    // ledcWrite(rightMotor.enablePin, SLOW_MOTOR_DUTY_CYCLE);
+  // }
+  // else {
     ledcWrite(leftMotor.enablePin, SLOW_MOTOR_DUTY_CYCLE);
     ledcWrite(rightMotor.enablePin, FAST_MOTOR_DUTY_CYCLE);
-  }
+  // }
   numSteps++;
   if (dir == LEFT) {
     rotateByAngle(-DEGREE);
