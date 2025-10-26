@@ -12,12 +12,13 @@
 #define SOUND_SPEED 0.0343
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
-#define LINEAR_MS 300
-#define MOTOR_DUTY_CYCLE 200
+#define LINEAR_MS 550
+#define SLOW_MOTOR_DUTY_CYCLE 198
+#define FAST_MOTOR_DUTY_CYCLE 200
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
 #define RSSI_COUNT 7
-#define DEGREE 80.0
+#define DEGREE 81.0
 
 using namespace std;
 
@@ -76,6 +77,8 @@ struct DirectionInfo {
 };
 
 int weights[GRID_HEIGHT][GRID_WIDTH] = { 0 };
+
+int numSteps = 0;
 
 Adafruit_MPU6050 mpu;
 NimBLEScan* pBLEScan;
@@ -152,13 +155,11 @@ bool publishSensorData(string endpoint) {
   char payload[256];
   serializeJson(doc, payload);
 
-  samplingState = PAUSED;
   return publish(topic.c_str(), payload);
 }
 
 class ScanCallback : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) {
-    // Serial.println(samplingState);
 
     if (samplingState == IDLE) {
       resetDoc();
@@ -175,6 +176,7 @@ class ScanCallback : public NimBLEScanCallbacks {
       if (car == RUNNING) {
         sampleDistance();
         publishSensorData("/path");
+        samplingState = IDLE;
       }
       return;
     }
@@ -184,12 +186,15 @@ class ScanCallback : public NimBLEScanCallbacks {
     // Serial.println(rssi);
 
     if (address == "68:25:dd:44:e6:c2" && rssi1.size() < RSSI_COUNT) {
+      Serial.println(1);
       // Serial.println("add 1");
       rssi1.add(rssi);
     } else if (address == "b0:a7:32:2a:69:56" && rssi2.size() < RSSI_COUNT) {
+      Serial.println(2);
       rssi2.add(rssi);
       // Serial.println("add 2");
     } else if (address == "b0:a7:32:14:26:6a" && rssi3.size() < RSSI_COUNT) {
+      Serial.println(3);
       rssi3.add(rssi);
       // Serial.println("add 3");
     }
@@ -329,8 +334,15 @@ void moveForward() {
 }
 
 void handleMove(Direction dir) {
-  ledcWrite(leftMotor.enablePin, MOTOR_DUTY_CYCLE);
-  ledcWrite(rightMotor.enablePin, MOTOR_DUTY_CYCLE);
+  if (numSteps % 4 == 0) {
+    ledcWrite(leftMotor.enablePin, FAST_MOTOR_DUTY_CYCLE);
+    ledcWrite(rightMotor.enablePin, SLOW_MOTOR_DUTY_CYCLE);
+  }
+  else {
+    ledcWrite(leftMotor.enablePin, SLOW_MOTOR_DUTY_CYCLE);
+    ledcWrite(rightMotor.enablePin, FAST_MOTOR_DUTY_CYCLE);
+  }
+  numSteps++;
   if (dir == LEFT) {
     rotateByAngle(-DEGREE);
   } else if (dir == RIGHT) {
@@ -406,6 +418,8 @@ void setupNetwork() {
   NimBLEDevice::init("");
   pBLEScan = NimBLEDevice::getScan();
 
+  Serial.println("HALOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
+
   const char* macAddresses[] = {
     "68:25:dd:44:e6:c2",
     "b0:a7:32:2a:69:56",
@@ -429,7 +443,7 @@ void setupNetwork() {
 
   pBLEScan->setScanCallbacks(&scanCallbacks);
   pBLEScan->setActiveScan(true);
-  pBLEScan->setInterval(100);
+  pBLEScan->setInterval(150);
   pBLEScan->setWindow(99);
 
   pBLEScan->setDuplicateFilter(false);
@@ -467,9 +481,14 @@ void setupPins() {
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("Testing 123");
 
   setupPins();
   setupNetwork();
+
+  Serial.printf("Slow: %d\n", SLOW_MOTOR_DUTY_CYCLE);
+  Serial.printf("Fast: %d\n", FAST_MOTOR_DUTY_CYCLE);
+  Serial.printf("Linear ms %d\n", LINEAR_MS);
 
   resetDoc();
   samplingState = SAMPLING;
@@ -480,6 +499,7 @@ void setup() {
   sampleDistance();
 
   while (!publishSensorData("/start")) {}
+  samplingState = PAUSED;
 }
 
 void startCar() {
