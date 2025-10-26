@@ -62,7 +62,7 @@ struct UltrasonicPin {
 struct Coordinate {
   int y;
   int x;
-} currCoord = { 0, 0 }, endCoord;
+} currCoord = { 0, 0 }, endCoord = {29, 29};
 
 struct DirectionInfo {
   int dy;
@@ -102,6 +102,8 @@ void reconnect() {
   while (!client.connected()) {
     if (client.connect("ESP32Client", mqttUser, mqttPass)) {
       Serial.println("MQTT Connected");
+
+      client.subscribe(startTopic.c_str());
     } else {
       Serial.print(client.state());
     }
@@ -150,21 +152,24 @@ bool publishSensorData(string endpoint) {
   char payload[256];
   serializeJson(doc, payload);
 
-  samplingState = IDLE;
+  samplingState = PAUSED;
   return publish(topic.c_str(), payload);
 }
 
 class ScanCallback : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) {
+    // Serial.println(samplingState);
+
     if (samplingState == IDLE) {
       resetDoc();
       samplingState = SAMPLING;
-    }
-    else if (samplingState != SAMPLING) {
+    } else if (samplingState != SAMPLING) {
       return;
     }
 
     string address = advertisedDevice->getAddress().toString();
+
+    // Serial.println(address.c_str());
 
     if (rssi1.size() == RSSI_COUNT && rssi2.size() == RSSI_COUNT && rssi3.size() == RSSI_COUNT) {
       if (car == RUNNING) {
@@ -176,12 +181,17 @@ class ScanCallback : public NimBLEScanCallbacks {
 
     int rssi = advertisedDevice->getRSSI();
 
+    // Serial.println(rssi);
+
     if (address == "68:25:dd:44:e6:c2" && rssi1.size() < RSSI_COUNT) {
+      // Serial.println("add 1");
       rssi1.add(rssi);
     } else if (address == "b0:a7:32:2a:69:56" && rssi2.size() < RSSI_COUNT) {
       rssi2.add(rssi);
+      // Serial.println("add 2");
     } else if (address == "b0:a7:32:14:26:6a" && rssi3.size() < RSSI_COUNT) {
       rssi3.add(rssi);
+      // Serial.println("add 3");
     }
   }
 } scanCallbacks;
@@ -208,9 +218,14 @@ void callback(char* topic, uint8_t* payload, unsigned int length) {
   // }
 
   if (topic == startTopic) {
-    x = jsonDoc["x"].as<int>();
-    y = jsonDoc["y"].as<int>();
-    endCoord = { y, x };
+    int x = jsonDoc["x"].as<int>();
+    int y = jsonDoc["y"].as<int>();
+
+    Serial.printf("y: %d x: %d\n", y, x);
+
+    endCoord.y = y;
+    endCoord.x = x;
+
     car = STARTED;
   }
 }
@@ -251,7 +266,7 @@ void floodfill() {
 
     for (DirectionInfo dirInfo : directions) {
       int newY = coord.y + dirInfo.dy;
-      int newX = coord.x + dirInfo.dy;
+      int newX = coord.x + dirInfo.dx;
 
       if (isOutOfBounds(newY, newX) || isVisited[newY][newX] || weights[newY][newX] == INT_MAX) {
         continue;
@@ -347,11 +362,14 @@ int stoppedCount = 0;
 void pathfind() {
   bool moved = false;
 
+  Serial.printf("y: %d x: %d\n", currCoord.y, currCoord.x);
+
   for (DirectionInfo dirInfo : directions) {
     int newY = currCoord.y + dirInfo.dy;
     int newX = currCoord.x + dirInfo.dx;
     Direction newDirection = getRotation(dirInfo.dir);
 
+    Serial.printf("ny: %d nx: %d\n", newY, newX);
     if (isOutOfBounds(newY, newX) || weights[newY][newX] > weights[currCoord.y][currCoord.x]) {
       continue;
     }
@@ -444,7 +462,7 @@ void setupPins() {
   pinMode(rightMotor.enablePin, OUTPUT);
 
   ledcAttachChannel(leftMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, leftMotor.pwmChannel);
-  ledcAttachChannel(rightMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, leftMotor.pwmChannel);
+  ledcAttachChannel(rightMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, rightMotor.pwmChannel);
 }
 
 void setup() {
@@ -456,7 +474,9 @@ void setup() {
   resetDoc();
   samplingState = SAMPLING;
 
-  while (rssi1.size() < RSSI_COUNT || rssi2.size() < RSSI_COUNT || rssi3.size() < RSSI_COUNT) {}
+  while (rssi1.size() < RSSI_COUNT || rssi2.size() < RSSI_COUNT || rssi3.size() < RSSI_COUNT) {
+    delay(1000);
+  }
   sampleDistance();
 
   while (!publishSensorData("/start")) {}
@@ -466,24 +486,23 @@ void startCar() {
   floodfill();
   printWeights();
   car = RUNNING;
+  samplingState = IDLE;
 }
 
 void stopCar() {
-  samplingState = PAUSED;
   publish(endTopic.c_str(), "");
   car = WAITING;
+  samplingState = PAUSED;
 }
 
 void loop() {
+  client.loop();
   if (car == RUNNING) {
-    if (rssi1.size() == RSSI_COUNT && rssi2.size() == RSSI_COUNT && rssi3.size() == RSSI_COUNT) {
-      sampleDistance();
-      publishSensorData("/path");
-      return;
-    }
-
-    if (currCoord.y != endCoord.y || currCoord.x != endCoord.y) {
+    if (currCoord.y != endCoord.y || currCoord.x != endCoord.x) {
       pathfind();
+    }
+    else {
+      car = STOPPED;
     }
   } else if (car == STARTED) {
     startCar();

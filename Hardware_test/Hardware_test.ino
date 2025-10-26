@@ -10,12 +10,12 @@
 #define SOUND_SPEED 0.0343
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
-#define LINEAR_MS 300
-#define MOTOR_DUTY_CYCLE 255
+#define LINEAR_MS 350
+#define MOTOR_DUTY_CYCLE 200
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
 #define RSSI_COUNT 7
-#define DEGREE 70.0
+#define DEGREE 80.0
 
 using namespace std;
 
@@ -30,7 +30,7 @@ enum CarState {
   RUNNING,
   STOPPED,
   WAITING
-} car = WAITING;
+} car = STARTED;
 
 enum Direction {
   FRONT,
@@ -279,6 +279,45 @@ void moveForward() {
   delay(LINEAR_MS);
 }
 
+void moveForwardStraight(int duration) {
+  float Kp = 2.0;
+
+  float currentAngle = 0.0;
+  unsigned long lastTime = micros();
+
+  setMotorState(leftMotor, FORWARD);
+  setMotorState(rightMotor, FORWARD);
+
+  unsigned long startTime = millis();
+  while (millis() - startTime < duration) {
+    unsigned long currentTime = micros();
+    float dt = (currentTime - lastTime) / 1000000.0;
+    lastTime = currentTime;
+
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    float zRate = g.gyro.z;
+    currentAngle += (zRate * 180.0 / M_PI) * dt;
+
+    float error = currentAngle;
+
+    float correction = Kp * error;
+
+    int leftDutyCycle = MOTOR_DUTY_CYCLE - correction;
+    int rightDutyCycle = MOTOR_DUTY_CYCLE + correction;
+
+    leftDutyCycle = constrain(leftDutyCycle, 200, 255);
+    rightDutyCycle = constrain(rightDutyCycle, 200, 255);
+
+    ledcWrite(leftMotor.enablePin, leftDutyCycle);
+    ledcWrite(rightMotor.enablePin, rightDutyCycle);
+  }
+
+  setMotorState(leftMotor, STOP);
+  setMotorState(rightMotor, STOP);
+}
+
 void handleMove(Direction dir) {
   ledcWrite(leftMotor.enablePin, MOTOR_DUTY_CYCLE);
   ledcWrite(rightMotor.enablePin, MOTOR_DUTY_CYCLE);
@@ -377,7 +416,7 @@ void setupNetwork() {
 
   pBLEScan->setDuplicateFilter(false);
   pBLEScan->setFilterPolicy(BLE_HCI_SCAN_FILT_USE_WL);
-  pBLEScan->start(0, false);
+  // pBLEScan->start(0, false);
 }
 
 void setupPins() {
@@ -406,7 +445,7 @@ void setupPins() {
   pinMode(rightMotor.enablePin, OUTPUT);
 
   ledcAttachChannel(leftMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, leftMotor.pwmChannel);
-  ledcAttachChannel(rightMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, leftMotor.pwmChannel);
+  ledcAttachChannel(rightMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, rightMotor.pwmChannel);
 }
 
 void startCar() {
@@ -428,15 +467,15 @@ void setup() {
   setupPins();
   setupNetwork();
 
-  resetDoc();
-  samplingState = SAMPLING;
+  // resetDoc();
+  // samplingState = SAMPLING;
 
-  while (rssi1.size() < RSSI_COUNT || rssi2.size() < RSSI_COUNT || rssi3.size() < RSSI_COUNT) {}
-  sampleDistance();
+  // while (rssi1.size() < RSSI_COUNT || rssi2.size() < RSSI_COUNT || rssi3.size() < RSSI_COUNT) {}
+  // sampleDistance();
 
-  while (!publishSensorData("/start")) {}
+  // while (!publishSensorData("/start")) {}
 
-  startCar();
+  floodfill();
 }
 
 void stopCar() {
@@ -448,11 +487,6 @@ void stopCar() {
 void loop() {
   if (car == RUNNING) {
     Serial.println("Running...");
-    if (samplingState == IDLE) {
-      resetDoc();
-      samplingState = SAMPLING;
-    }
-
     if (currCoord.y != endCoord.y || currCoord.x != endCoord.y) {
       pathfind();
     } else {
