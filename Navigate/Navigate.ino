@@ -13,11 +13,11 @@
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
 #define LINEAR_MS 300
-#define MOTOR_DUTY_CYCLE 255
+#define MOTOR_DUTY_CYCLE 200
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
 #define RSSI_COUNT 7
-#define DEGREE 70.0
+#define DEGREE 80.0
 
 using namespace std;
 
