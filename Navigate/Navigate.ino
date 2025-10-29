@@ -18,7 +18,7 @@
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
 #define RSSI_COUNT 7
-#define DEGREE 81.0
+#define DEGREE 79
 
 using namespace std;
 

@@ -11,7 +11,7 @@ const int motor2Pin1 = 32, motor2Pin2 = 33, enable2Pin = 25;
 const int freq = 30000;
 const int pwmChannel1 = 0,pwmChannel2 = 1;
 const int resolution = 8;
-int dutyCycle = 255;
+int dutyCycle = 200;
 
 const int mqttPort = 1883;
 const char *ssid = "Br", *password = "dk-dutisa", *mqttHost = "148.230.101.206", *mqttU = "dk", *mqttP = "dkdkdk";
@@ -26,13 +26,13 @@ PubSubClient client(espClient);
 
 void motorLogic() {
 
-  // ledcWrite(enable1Pin, dutyCycle);   
-  // ledcWrite(enable2Pin, dutyCycle); 
-  // digitalWrite(motor1Pin1, LOW);
-  // digitalWrite(motor1Pin2, HIGH); 
-  // digitalWrite(motor2Pin1, LOW);
-  // digitalWrite(motor2Pin2, HIGH); 
-  // return;
+  ledcWrite(enable1Pin, dutyCycle);   
+  ledcWrite(enable2Pin, dutyCycle); 
+  digitalWrite(motor1Pin1, LOW);
+  digitalWrite(motor1Pin2, HIGH); 
+  digitalWrite(motor2Pin1, LOW);
+  digitalWrite(motor2Pin2, HIGH); 
+  return;
 
   
   printf("En : %s Dir %s\n", en,dir);
@@ -113,14 +113,14 @@ void setup() {
   ledcAttachChannel(enable2Pin, freq, resolution, pwmChannel2);
 
 
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println("\nWiFi Connected");
-  client.setServer(mqttHost, mqttPort);
-  client.setCallback(callback);
+  // WiFi.begin(ssid, password);
+  // while (WiFi.status() != WL_CONNECTED) {
+  //   Serial.print(".");
+  //   delay(500);
+  // }
+  // Serial.println("\nWiFi Connected");
+  // client.setServer(mqttHost, mqttPort);
+  // client.setCallback(callback);
 
 }
 void reconnect() {
@@ -145,8 +145,8 @@ void loop() {
   
   motorLogic();
 
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
+  // if (!client.connected()) {
+  //   reconnect();
+  // }
+  // client.loop();
 }
