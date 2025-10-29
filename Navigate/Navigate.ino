@@ -12,9 +12,9 @@
 #define SOUND_SPEED 0.0343
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
-#define LINEAR_MS 550
-#define SLOW_MOTOR_DUTY_CYCLE 198
-#define FAST_MOTOR_DUTY_CYCLE 200
+#define LINEAR_MS 500
+#define SLOW_SPEED 230
+#define FAST_SPEED 240
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
 #define RSSI_COUNT 7
@@ -63,7 +63,7 @@ struct UltrasonicPin {
 struct Coordinate {
   int y;
   int x;
-} currCoord = { 0, 0 }, endCoord = {29, 29};
+} currCoord = { 0, 0 }, endCoord = { 29, 29 };
 
 struct DirectionInfo {
   int dy;
@@ -77,6 +77,7 @@ struct DirectionInfo {
 };
 
 int weights[GRID_HEIGHT][GRID_WIDTH] = { 0 };
+float carAngle = 0;
 
 int numSteps = 0;
 
@@ -298,6 +299,9 @@ void setMotorState(MotorPin motor, MotorState state) {
 }
 
 void rotateByAngle(float targetAngle) {
+  ledcWrite(leftMotor.enablePin, FAST_SPEED);
+  ledcWrite(rightMotor.enablePin, FAST_SPEED);
+
   float currentZAngle = 0.0;
   unsigned long lastTime = millis();
 
@@ -322,6 +326,8 @@ void rotateByAngle(float targetAngle) {
     currentZAngle += (zRate * 180.0 / M_PI) * dt;
   }
 
+  carAngle = 0;
+
   Serial.println("rotating finished");
   setMotorState(leftMotor, STOP);
   setMotorState(rightMotor, STOP);
@@ -330,19 +336,37 @@ void rotateByAngle(float targetAngle) {
 void moveForward() {
   setMotorState(leftMotor, FORWARD);
   setMotorState(rightMotor, FORWARD);
-  delay(LINEAR_MS);
+
+  unsigned long currTime, startTime, lastTime;
+  currTime = startTime = lastTime = millis();
+
+  while (currTime - startTime < LINEAR_MS) {
+    float correctedSpeed = min(abs(carAngle), 3.0f) / 2.0 * (FAST_SPEED - SLOW_SPEED) + SLOW_SPEED;
+
+    if (carAngle > 0) {
+      ledcWrite(leftMotor.enablePin, correctedSpeed);
+      ledcWrite(rightMotor.enablePin, SLOW_SPEED);
+    } else {
+      ledcWrite(leftMotor.enablePin, SLOW_SPEED);
+      ledcWrite(rightMotor.enablePin, correctedSpeed);
+    }
+
+    currTime = millis();
+    float dt = (currTime - lastTime) / 1000.0;
+    lastTime = currTime;
+
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    float zRate = g.gyro.z;
+    carAngle += (zRate * 180.0 / M_PI) * dt;
+  }
+
+  setMotorState(leftMotor, STOP);
+  setMotorState(rightMotor, STOP);
 }
 
 void handleMove(Direction dir) {
-  if (numSteps % 4 == 0) {
-    ledcWrite(leftMotor.enablePin, FAST_MOTOR_DUTY_CYCLE);
-    ledcWrite(rightMotor.enablePin, SLOW_MOTOR_DUTY_CYCLE);
-  }
-  else {
-    ledcWrite(leftMotor.enablePin, SLOW_MOTOR_DUTY_CYCLE);
-    ledcWrite(rightMotor.enablePin, FAST_MOTOR_DUTY_CYCLE);
-  }
-  numSteps++;
   if (dir == LEFT) {
     rotateByAngle(-DEGREE);
   } else if (dir == RIGHT) {
@@ -486,8 +510,8 @@ void setup() {
   setupPins();
   setupNetwork();
 
-  Serial.printf("Slow: %d\n", SLOW_MOTOR_DUTY_CYCLE);
-  Serial.printf("Fast: %d\n", FAST_MOTOR_DUTY_CYCLE);
+  Serial.printf("Slow: %d\n", SLOW_SPEED);
+  Serial.printf("Fast: %d\n", FAST_SPEED);
   Serial.printf("Linear ms %d\n", LINEAR_MS);
 
   resetDoc();
@@ -520,8 +544,7 @@ void loop() {
   if (car == RUNNING) {
     if (currCoord.y != endCoord.y || currCoord.x != endCoord.x) {
       pathfind();
-    }
-    else {
+    } else {
       car = STOPPED;
     }
   } else if (car == STARTED) {
