@@ -1,14 +1,20 @@
+// Library cpp
 #include <queue>
 #include <string>
 #include <vector>
 #include <climits>
-#include <WiFi.h>
-#include <Wire.h>
-#include <ArduinoJson.h>
-#include <PubSubClient.h>
-#include <NimBLEDevice.h>
+
+#include <WiFi.h> // Library untuk koneksi
+#include <Wire.h> // Library pembantu untuk menyambungkan ESP dengan sensor
+#include <ArduinoJson.h> // Library pembantu untuk serialize dan deserialize JSON
+#include <PubSubClient.h> // Library untuk membuat request ke MQTT pada backend
+#include <NimBLEDevice.h> // Library untuk koneksi bluetooth
+
+// Library untuk sensor MPU6050
 #include <Adafruit_Sensor.h>
 #include <Adafruit_MPU6050.h>
+
+// Konstanta variable pembantu
 #define SOUND_SPEED 0.0343
 #define GRID_HEIGHT 30
 #define GRID_WIDTH 30
@@ -18,10 +24,11 @@
 #define MOTOR_FREQUENCY 30000
 #define MOTOR_RESOLUTION 8
 #define RSSI_COUNT 7
-#define DEGREE 79
+#define DEGREE 84
 
 using namespace std;
 
+// Enum untuk membantu memperjelas flow code
 enum MotorState {
   FORWARD,
   REVERSE,
@@ -48,6 +55,7 @@ enum SamplingState {
   SAMPLING
 } samplingState = PAUSED;
 
+// Struct untuk memperjelas struktur code
 struct MotorPin {
   int pin1;
   int pin2;
@@ -76,32 +84,41 @@ struct DirectionInfo {
   { 0, -1, LEFT }
 };
 
+// 2D array weight
 int weights[GRID_HEIGHT][GRID_WIDTH] = { 0 };
+
+// Variable yang menyimpan kemiringan mobil
 float carAngle = 0;
 
-int numSteps = 0;
-
+// Variable untuk MPU6050
 Adafruit_MPU6050 mpu;
+// Variable untuk scan bluetooth
 NimBLEScan* pBLEScan;
+// Variable untuk connect wifi
 WiFiClient espClient;
+// Variable untuk berkomunikasi dengan MQTT
 PubSubClient client(espClient);
 
+// Variable untuk terhubung dengan MQTT
 const int mqttPort = 1883;
 const char *ssid = "Xiaomi 12T", *password = "hehehehe";
 const char *mqttHost = "148.230.101.206", *mqttUser = "dk", *mqttPass = "dkdkdk";
 
+// Variable payload dan topic MQTT
 StaticJsonDocument<256> doc;
 JsonArray rssi1, rssi2, rssi3;
 const string rssiBaseTopic = "things/rssi";
 const string startTopic = "navigation/start/";
 const string endTopic = "navigation/end/";
 
+// Function untuk mereset payload
 void resetDoc() {
   rssi1 = doc.createNestedArray("r1");
   rssi2 = doc.createNestedArray("r2");
   rssi3 = doc.createNestedArray("r3");
 }
 
+// Function untuk connect ke MQTT
 void reconnect() {
   while (!client.connected()) {
     if (client.connect("ESP32Client", mqttUser, mqttPass)) {
@@ -114,6 +131,7 @@ void reconnect() {
   }
 }
 
+// Function untuk publish ke MQTT
 bool publish(const char* topic, const char* payload) {
   if (!client.connected()) {
     reconnect();
@@ -128,6 +146,7 @@ bool publish(const char* topic, const char* payload) {
   }
 }
 
+// Function untuk scan ultrasonic sensor
 float scanDistance(UltrasonicPin sensor) {
   digitalWrite(sensor.trigPin, LOW);
   delayMicroseconds(2);
@@ -144,12 +163,14 @@ float scanDistance(UltrasonicPin sensor) {
   return distance;
 }
 
+// Function untuk scan semua ultrasonic sensor
 void sampleDistance() {
   doc["u1"] = scanDistance(rightUltrasonic);
   doc["u2"] = scanDistance(frontUltrasonic);
   doc["u3"] = scanDistance(leftUltrasonic);
 }
 
+// Function untuk publish semua sensor data ke MQTT
 bool publishSensorData(string endpoint) {
   string topic = rssiBaseTopic + endpoint;
 
@@ -159,6 +180,7 @@ bool publishSensorData(string endpoint) {
   return publish(topic.c_str(), payload);
 }
 
+// Class untuk logic scan bluetooth RSSI
 class ScanCallback : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) {
 
@@ -202,6 +224,7 @@ class ScanCallback : public NimBLEScanCallbacks {
   }
 } scanCallbacks;
 
+// Callback function untuk subscribe ke MQTT server
 void callback(char* topic, uint8_t* payload, unsigned int length) {
   Serial.print("Message arrived on topic: ");
   Serial.println(topic);
@@ -236,11 +259,13 @@ void callback(char* topic, uint8_t* payload, unsigned int length) {
   }
 }
 
+// Function untuk mendapatkan arah rotasi
 Direction getRotation(Direction targetDirection) {
   int diff = (targetDirection - currDirection + 4) % 4;
   return static_cast<Direction>(diff);
 }
 
+// Function untuk print semua weight
 void printWeights() {
   for (int i = 0; i < GRID_HEIGHT; i++) {
     for (int j = 0; j < GRID_WIDTH; j++) {
@@ -254,10 +279,12 @@ void printWeights() {
   }
 }
 
+// Function pembantu untuk mengecek apakah koordinat diluar map
 bool isOutOfBounds(int y, int x) {
   return y < 0 || x < 0 || y > GRID_HEIGHT - 1 || x > GRID_WIDTH - 1;
 }
 
+// Function untuk mengupdate weight array
 void floodfill() {
   bool isVisited[GRID_HEIGHT][GRID_WIDTH] = { false };
 
@@ -285,6 +312,7 @@ void floodfill() {
   }
 }
 
+// Function untuk menggerakkan motor
 void setMotorState(MotorPin motor, MotorState state) {
   if (state == FORWARD) {
     digitalWrite(motor.pin1, LOW);
@@ -298,6 +326,7 @@ void setMotorState(MotorPin motor, MotorState state) {
   }
 }
 
+// Function untuk membelokkan mobil
 void rotateByAngle(float targetAngle) {
   ledcWrite(leftMotor.enablePin, FAST_SPEED);
   ledcWrite(rightMotor.enablePin, FAST_SPEED);
@@ -333,6 +362,7 @@ void rotateByAngle(float targetAngle) {
   setMotorState(rightMotor, STOP);
 }
 
+// Function untuk bergerak lurus dengan auto angle correction menggunakan MPU6050
 void moveForward() {
   setMotorState(leftMotor, FORWARD);
   setMotorState(rightMotor, FORWARD);
@@ -341,7 +371,7 @@ void moveForward() {
   currTime = startTime = lastTime = millis();
 
   while (currTime - startTime < LINEAR_MS) {
-    float correctedSpeed = min(abs(carAngle), 3.0f) / 2.0 * (FAST_SPEED - SLOW_SPEED) + SLOW_SPEED;
+    float correctedSpeed = min(abs(carAngle), 1.0f) / 1.0 * (FAST_SPEED - SLOW_SPEED) + SLOW_SPEED;
 
     if (carAngle > 0) {
       ledcWrite(leftMotor.enablePin, correctedSpeed);
@@ -366,6 +396,7 @@ void moveForward() {
   setMotorState(rightMotor, STOP);
 }
 
+// Function untuk handle movement
 void handleMove(Direction dir) {
   if (dir == LEFT) {
     rotateByAngle(-DEGREE);
@@ -379,6 +410,7 @@ void handleMove(Direction dir) {
   ledcWrite(rightMotor.enablePin, 0);
 }
 
+// Function pembantu untuk mengecek apakah ada halangan di sisi kanan/kiri/depan mobil
 bool isObstructed(Direction dir) {
   float distance;
   if (dir == FRONT) {
@@ -393,8 +425,10 @@ bool isObstructed(Direction dir) {
   return distance > 0 && distance < 10;
 }
 
+// Variable untuk menghitung jumlah mobil berhenti berturut-turut
 int stoppedCount = 0;
 
+// Function untuk mendapatkan gerakkan mobil selanjutnya
 void pathfind() {
   bool moved = false;
 
@@ -438,6 +472,7 @@ void pathfind() {
   }
 }
 
+// Function untuk setup connectivity (wifi, bluetooth, subscribe MQTT)
 void setupNetwork() {
   NimBLEDevice::init("");
   pBLEScan = NimBLEDevice::getScan();
@@ -475,6 +510,7 @@ void setupNetwork() {
   pBLEScan->start(0, false);
 }
 
+// Function untuk setup pin yang terhubung pada ESP32
 void setupPins() {
   if (!mpu.begin()) {
     Serial.println("Failed to find MPU6050 chip");
@@ -503,6 +539,7 @@ void setupPins() {
   ledcAttachChannel(rightMotor.enablePin, MOTOR_FREQUENCY, MOTOR_RESOLUTION, rightMotor.pwmChannel);
 }
 
+// Function untuk setup segalanya
 void setup() {
   Serial.begin(115200);
   Serial.println("Testing 123");
@@ -526,6 +563,7 @@ void setup() {
   samplingState = PAUSED;
 }
 
+// Function untuk memulai pergerakkan mobil
 void startCar() {
   floodfill();
   printWeights();
@@ -533,12 +571,14 @@ void startCar() {
   samplingState = IDLE;
 }
 
+// Function untuk menghentikkan pergerakkan mobil
 void stopCar() {
   publish(endTopic.c_str(), "");
   car = WAITING;
   samplingState = PAUSED;
 }
 
+// Loop yang akan berjalan terus selama ESP32 dinyalakan
 void loop() {
   client.loop();
   if (car == RUNNING) {
